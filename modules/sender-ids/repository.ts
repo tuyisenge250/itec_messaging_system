@@ -52,6 +52,10 @@ export const senderIdRepository = {
     return prisma.senderId.findMany({ where: { organizationId }, orderBy: { createdAt: "desc" } });
   },
 
+  findSenderIdById(id: string) {
+    return prisma.senderId.findUnique({ where: { id } });
+  },
+
   updateSenderIdStatus(id: string, status: "ACTIVE" | "SUSPENDED" | "EXPIRED" | "CANCELLED") {
     const extra =
       status === "SUSPENDED"

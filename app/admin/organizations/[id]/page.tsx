@@ -14,7 +14,7 @@ import { StatusBadge, Badge } from "../../../_components/ui/Badge";
 import { Tabs } from "../../../_components/ui/Tabs";
 import { Alert } from "../../../_components/ui/Alert";
 import { Button } from "../../../_components/ui/Button";
-import { Dialog } from "../../../_components/ui/Dialog";
+import { Dialog, ConfirmDialog } from "../../../_components/ui/Dialog";
 import { Field, Input, Textarea, Select } from "../../../_components/ui/Form";
 import type { Environment, OrganizationDetail, Wallet } from "../../../_lib/api/types";
 
@@ -221,6 +221,7 @@ function DocumentsTab({ organizationId, active }: { organizationId: string; acti
           <Th>Size</Th>
           <Th>Status</Th>
           <Th>Uploaded</Th>
+          <Th />
         </tr>
       </Thead>
       <Tbody>
@@ -233,6 +234,11 @@ function DocumentsTab({ organizationId, active }: { organizationId: string; acti
               <StatusBadge status={d.status} />
             </Td>
             <Td>{formatDateTime(d.createdAt)}</Td>
+            <Td>
+              <a href={`/api/documents/${d.id}/content`} className="text-xs font-medium text-brand-600 hover:underline">
+                View
+              </a>
+            </Td>
           </Tr>
         ))}
       </Tbody>
@@ -241,7 +247,26 @@ function DocumentsTab({ organizationId, active }: { organizationId: string; acti
 }
 
 function SenderIdsTab({ organizationId, active }: { organizationId: string; active: boolean }) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [confirmTarget, setConfirmTarget] = useState<{ id: string; value: string; action: "suspend" | "activate" } | null>(null);
+
   const query = useQuery({ queryKey: ["admin", "org", organizationId, "sender-ids"], queryFn: () => adminApi.orgSenderIds(organizationId), enabled: active });
+
+  const setStatus = useMutation({
+    mutationFn: (target: { id: string; action: "suspend" | "activate" }) =>
+      target.action === "suspend" ? adminApi.suspendSenderId(target.id) : adminApi.activateSenderId(target.id),
+    onSuccess: () => {
+      toast.push(`Sender ID ${confirmTarget?.action === "suspend" ? "suspended" : "activated"}`, "success");
+      setConfirmTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["admin", "org", organizationId, "sender-ids"] });
+    },
+    onError: (err) => {
+      toast.push(errorMessage(err), "danger");
+      setConfirmTarget(null);
+    },
+  });
+
   if (query.isLoading) return <SkeletonTable rows={3} />;
   if (query.isError) return <Alert tone="danger">Unable to load sender IDs. {errorMessage(query.error)}</Alert>;
   if (!query.data) return null;
@@ -259,6 +284,7 @@ function SenderIdsTab({ organizationId, active }: { organizationId: string; acti
                 <Th>Environment</Th>
                 <Th>Status</Th>
                 <Th>Activated</Th>
+                <Th />
               </tr>
             </Thead>
             <Tbody>
@@ -272,6 +298,24 @@ function SenderIdsTab({ organizationId, active }: { organizationId: string; acti
                     <StatusBadge status={s.status} />
                   </Td>
                   <Td>{s.activatedAt ? formatDate(s.activatedAt) : "—"}</Td>
+                  <Td>
+                    {s.status === "ACTIVE" && (
+                      <button
+                        onClick={() => setConfirmTarget({ id: s.id, value: s.value, action: "suspend" })}
+                        className="text-xs font-medium text-danger hover:underline"
+                      >
+                        Suspend
+                      </button>
+                    )}
+                    {s.status === "SUSPENDED" && (
+                      <button
+                        onClick={() => setConfirmTarget({ id: s.id, value: s.value, action: "activate" })}
+                        className="text-xs font-medium text-brand-600 hover:underline"
+                      >
+                        Reactivate
+                      </button>
+                    )}
+                  </Td>
                 </Tr>
               ))}
             </Tbody>
@@ -309,6 +353,21 @@ function SenderIdsTab({ organizationId, active }: { organizationId: string; acti
           </Table>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmTarget !== null}
+        title={confirmTarget?.action === "suspend" ? `Suspend ${confirmTarget.value}?` : `Reactivate ${confirmTarget?.value}?`}
+        description={
+          confirmTarget?.action === "suspend"
+            ? "Messages can no longer be sent from this sender ID until it's reactivated."
+            : "This sender ID becomes usable for sending again."
+        }
+        confirmLabel={confirmTarget?.action === "suspend" ? "Suspend" : "Reactivate"}
+        danger={confirmTarget?.action === "suspend"}
+        loading={setStatus.isPending}
+        onConfirm={() => setStatus.mutate({ id: confirmTarget!.id, action: confirmTarget!.action })}
+        onCancel={() => setConfirmTarget(null)}
+      />
     </div>
   );
 }

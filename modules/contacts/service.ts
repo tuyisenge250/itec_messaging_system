@@ -2,6 +2,7 @@ import { parse } from "csv-parse/sync";
 import { contactRepository } from "./repository";
 import { assertPermission, assertOrganizationAccess, assertResourceBelongsToOrganization } from "@/modules/auth/services/authorization-service";
 import { normalizeRwandaPhoneNumber } from "@/shared/utils/phone";
+import { checkRateLimit } from "@/infrastructure/redis/rate-limiter";
 import { AppError } from "@/shared/errors/app-error";
 import { ErrorCode } from "@/shared/errors/error-codes";
 import { PermissionCode } from "@/shared/constants/permissions";
@@ -83,6 +84,9 @@ export async function importContacts(
 ): Promise<ImportContactsResult> {
   await assertPermission(actor, PermissionCode.CONTACTS_MANAGE);
   assertOrganizationAccess(actor, organizationId);
+
+  const limit = await checkRateLimit(`contacts-import:org:${organizationId}`, 10, 60 * 60);
+  if (!limit.allowed) throw AppError.rateLimited("Too many CSV imports for this organization. Try again later.");
 
   if (input.groupId) {
     const group = await contactRepository.findGroupById(input.groupId);

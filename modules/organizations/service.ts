@@ -15,6 +15,7 @@ import {
   requirePlatformAdmin,
 } from "@/modules/auth/services/authorization-service";
 import { recordAuditEvent } from "@/modules/audit/service";
+import { checkRateLimit } from "@/infrastructure/redis/rate-limiter";
 import { AppError } from "@/shared/errors/app-error";
 import { PermissionCode } from "@/shared/constants/permissions";
 import { RoleName } from "@/shared/constants/roles";
@@ -195,6 +196,10 @@ export async function getOrganizationForAdmin(actor: ActorContext, organizationI
  */
 export async function startActingAsOrganization(actor: ActorContext, organizationId: string) {
   requirePlatformAdmin(actor);
+
+  const limit = await checkRateLimit(`act-as:user:${actor.userId}`, 30, 60 * 60);
+  if (!limit.allowed) throw AppError.rateLimited("Too many organization switches. Try again later.");
+
   const organization = await organizationRepository.findById(organizationId);
   if (!organization) throw AppError.notFound();
 

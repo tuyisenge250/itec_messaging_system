@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { assertPubliclyRoutableUrl } from "@/shared/utils/url-safety";
+import { fetch as undiciFetch } from "undici";
+import { assertPubliclyRoutableUrl, getSsrfSafeDispatcher } from "@/shared/utils/url-safety";
 
 describe("assertPubliclyRoutableUrl", () => {
   it("rejects non-https schemes", async () => {
@@ -32,5 +33,21 @@ describe("assertPubliclyRoutableUrl", () => {
 
   it("accepts a well-formed public https URL", async () => {
     await expect(assertPubliclyRoutableUrl("https://example.com/hook")).resolves.toBeUndefined();
+  });
+});
+
+describe("getSsrfSafeDispatcher (connection-level guard, independent of the pre-check)", () => {
+  it("blocks a connection to a private address at the actual connect step, not just the pre-check", async () => {
+    // Proves the guard lives at the dispatcher's DNS-resolution step itself —
+    // this fetch never calls assertPubliclyRoutableUrl at all, so a pass here
+    // can only come from the dispatcher's own filter, not the earlier check.
+    await expect(
+      undiciFetch("https://localhost/", { dispatcher: getSsrfSafeDispatcher(), signal: AbortSignal.timeout(3000) }),
+    ).rejects.toMatchObject({ cause: expect.objectContaining({ message: expect.stringContaining("SSRF guard") }) });
+  });
+
+  it("still allows a real public host through the same dispatcher", async () => {
+    const response = await undiciFetch("https://example.com/", { dispatcher: getSsrfSafeDispatcher(), signal: AbortSignal.timeout(8000) });
+    expect(response.status).toBe(200);
   });
 });

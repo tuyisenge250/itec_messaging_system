@@ -2,6 +2,7 @@ import { billingRepository } from "./repository";
 import { organizationRepository } from "@/modules/organizations/repository";
 import { generateInvoicePdf } from "./pdf-generator";
 import { assertOrganizationAccess } from "@/modules/auth/services/authorization-service";
+import { checkRateLimit } from "@/infrastructure/redis/rate-limiter";
 import { AppError } from "@/shared/errors/app-error";
 import type { ActorContext } from "@/shared/types/actor-context";
 
@@ -23,6 +24,11 @@ export async function getOrCreateInvoiceForPaymentIntent(actor: ActorContext, pa
   if (intent.status !== "SUCCEEDED") {
     throw AppError.conflict("Only a succeeded payment has an invoice");
   }
+
+  // The DB row is idempotent, but the PDF itself is regenerated from scratch
+  // on every call (not cached) — bound how often that's worth paying for.
+  const limit = await checkRateLimit(`invoice-pdf:org:${intent.organizationId}`, 30, 60 * 60);
+  if (!limit.allowed) throw AppError.rateLimited("Too many invoice downloads for this organization. Try again later.");
 
   const existing = await billingRepository.findInvoiceByPaymentIntentId(paymentIntentId);
   const invoice = existing ?? (await billingRepository.createInvoice(intent.organizationId, paymentIntentId));

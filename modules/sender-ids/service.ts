@@ -235,11 +235,42 @@ export async function listSenderIds(actor: ActorContext, organizationId: string)
   return senderIdRepository.listSenderIdsForOrganization(organizationId);
 }
 
-export async function suspendSenderId(actor: ActorContext, organizationId: string, senderId: string) {
+/**
+ * Shared by suspendSenderId/activateSenderId below. organizationId is
+ * deliberately derived from the loaded SenderId row rather than taken as a
+ * caller-supplied param — a mismatched (organizationId, senderId) pair would
+ * otherwise silently act on a different organization's sender ID, since
+ * assertOrganizationAccess is a no-op for the platform admin actor this is
+ * gated to anyway.
+ */
+async function setSenderIdStatus(actor: ActorContext, senderId: string, status: "ACTIVE" | "SUSPENDED") {
   requirePlatformAdmin(actor);
   await assertPermission(actor, PermissionCode.SENDER_ID_MANAGE_LIFECYCLE);
-  assertOrganizationAccess(actor, organizationId);
-  return senderIdRepository.updateSenderIdStatus(senderId, "SUSPENDED");
+
+  const existing = await senderIdRepository.findSenderIdById(senderId);
+  if (!existing) throw AppError.notFound();
+  assertOrganizationAccess(actor, existing.organizationId);
+
+  const updated = await senderIdRepository.updateSenderIdStatus(senderId, status);
+
+  await recordAuditEvent({
+    actor,
+    action: status === "SUSPENDED" ? "sender_id.suspended" : "sender_id.activated",
+    resourceType: "SenderId",
+    resourceId: senderId,
+    organizationId: existing.organizationId,
+    metadata: { value: existing.value, previousStatus: existing.status },
+  });
+
+  return updated;
+}
+
+export async function suspendSenderId(actor: ActorContext, senderId: string) {
+  return setSenderIdStatus(actor, senderId, "SUSPENDED");
+}
+
+export async function activateSenderId(actor: ActorContext, senderId: string) {
+  return setSenderIdStatus(actor, senderId, "ACTIVE");
 }
 
 export async function listSenderIdRequestsForAdmin(actor: ActorContext, status?: SenderIdRequestStatus, cursor?: string) {

@@ -12,6 +12,7 @@ import { fileStorage } from "@/infrastructure/storage";
 import { assertPermission, assertOrganizationAccess } from "@/modules/auth/services/authorization-service";
 import { recordAuditEvent } from "@/modules/audit/service";
 import { logger } from "@/infrastructure/logging/logger";
+import { checkRateLimit } from "@/infrastructure/redis/rate-limiter";
 import { AppError } from "@/shared/errors/app-error";
 import { PermissionCode } from "@/shared/constants/permissions";
 import type { ActorContext } from "@/shared/types/actor-context";
@@ -22,11 +23,16 @@ const MESSAGE_SAMPLE_SIZE = 200;
  * GDPR-style "right to access" — one JSON bundle of everything this
  * organization's own principal data covers. Message history is capped to a
  * recent sample (exporting an unbounded send history isn't reasonable for a
- * high-volume sender); everything else is exported in full.
+ * high-volume sender); everything else is exported in full. Rate-limited —
+ * this assembles a full data dump per call, expensive enough to be worth
+ * bounding even for a legitimately-authorized caller.
  */
 export async function exportOrganizationData(actor: ActorContext, organizationId: string) {
   await assertPermission(actor, PermissionCode.ORGANIZATION_EXPORT_DATA);
   assertOrganizationAccess(actor, organizationId);
+
+  const limit = await checkRateLimit(`gdpr-export:org:${organizationId}`, 5, 60 * 60);
+  if (!limit.allowed) throw AppError.rateLimited("Too many data export requests for this organization. Try again later.");
 
   const organization = await organizationRepository.findByIdWithDetails(organizationId);
   if (!organization) throw AppError.notFound();
@@ -89,6 +95,9 @@ export async function exportOrganizationData(actor: ActorContext, organizationId
 export async function eraseOrganizationData(actor: ActorContext, organizationId: string, reason: string, confirmName: string) {
   await assertPermission(actor, PermissionCode.ORGANIZATION_DELETE);
   assertOrganizationAccess(actor, organizationId);
+
+  const limit = await checkRateLimit(`gdpr-erase:org:${organizationId}`, 3, 60 * 60);
+  if (!limit.allowed) throw AppError.rateLimited("Too many erasure attempts for this organization. Try again later.");
 
   const organization = await organizationRepository.findById(organizationId);
   if (!organization) throw AppError.notFound();

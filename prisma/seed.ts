@@ -654,25 +654,34 @@ async function seedApiKey(organizationId: string, createdByUserId: string) {
   console.log(`✓ sandbox API key created — dev-only token: ${token}`);
 }
 
+// --minimal: platform-level config + the 3 demo users only — no organization,
+// no membership, no sender ID/contacts/templates/API key. Useful for
+// resetting to a truly clean slate to walk through org creation/onboarding
+// from scratch. Run with: npm run db:seed:minimal
+const MINIMAL = process.argv.includes("--minimal");
+
 async function main() {
-  console.log("Seeding development data...\n");
+  console.log(`Seeding development data${MINIMAL ? " (--minimal: 3 users only, no organization)" : ""}...\n`);
 
   await seedPermissions();
   await seedRoles();
   const { platformAdmin, businessOwner, developerUser } = await seedUsers();
   const pricingPlan = await seedPricingAndPackages();
   await seedDocumentRequirements();
-  const organization = await seedOrganization(businessOwner.id, pricingPlan.id);
-  await addDeveloperMembership(organization.id, developerUser.id);
-  await seedSenderId(organization.id);
-  await seedContacts(organization.id);
-  await seedTemplates(organization.id);
   await seedProviderConfig();
   await seedSimulatorScenarios(platformAdmin.id);
   await seedSandboxTestNumberScenarios(platformAdmin.id);
   await seedFraudRules();
   await seedSystemSettings();
-  await seedApiKey(organization.id, developerUser.id);
+
+  if (!MINIMAL) {
+    const organization = await seedOrganization(businessOwner.id, pricingPlan.id);
+    await addDeveloperMembership(organization.id, developerUser.id);
+    await seedSenderId(organization.id);
+    await seedContacts(organization.id);
+    await seedTemplates(organization.id);
+    await seedApiKey(organization.id, developerUser.id);
+  }
 
   console.log("\nSeed complete.");
   console.log(`Platform admin: admin@smsgateway.dev / ${DEV_PASSWORD}`);

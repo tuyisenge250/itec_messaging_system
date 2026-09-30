@@ -1,7 +1,8 @@
+import { fetch as undiciFetch } from "undici";
 import { prisma } from "@/infrastructure/database/prisma";
 import { hmacSha256Hex } from "@/shared/utils/crypto";
 import { decryptSecret } from "@/shared/utils/encryption";
-import { assertPubliclyRoutableUrl } from "@/shared/utils/url-safety";
+import { assertPubliclyRoutableUrl, getSsrfSafeDispatcher } from "@/shared/utils/url-safety";
 import { logger } from "@/infrastructure/logging/logger";
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -26,16 +27,17 @@ export async function processWebhookDispatchJob(webhookDeliveryId: string, isFin
   const attempts = delivery.attempts + 1;
 
   try {
-    // Re-validate at dispatch time, not just at registration — DNS can be
-    // repointed to an internal address between when the customer registered
-    // the URL and when we actually dispatch to it (rebinding).
+    // Fast pre-check (https-only, malformed-URL rejection, clear error
+    // message) — DNS can still be repointed between here and the actual
+    // connection below, which is why the real guard is the dispatcher's
+    // per-connection lookup filter, not this call by itself.
     await assertPubliclyRoutableUrl(delivery.webhook.url);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    let response: Response;
+    let response: Awaited<ReturnType<typeof undiciFetch>>;
     try {
-      response = await fetch(delivery.webhook.url, {
+      response = await undiciFetch(delivery.webhook.url, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Webhook-Signature": signature },
         body,
@@ -43,6 +45,11 @@ export async function processWebhookDispatchJob(webhookDeliveryId: string, isFin
         // A redirect target isn't re-validated against the SSRF allowlist, so
         // never follow one — the customer's receiver shouldn't be redirecting.
         redirect: "manual",
+        // Every connection this dispatcher makes resolves through
+        // ssrfSafeLookup (shared/utils/url-safety.ts) — closes the TOCTOU gap
+        // between assertPubliclyRoutableUrl's check above and the actual
+        // connect, since there's no longer a second, unguarded DNS lookup.
+        dispatcher: getSsrfSafeDispatcher(),
       });
     } finally {
       clearTimeout(timeout);

@@ -217,6 +217,8 @@ export const adminApi = {
   orgMembers: (id: string) => apiFetch<{ members: T.Member[] }>(`/api/admin/organizations/${id}/members`),
   orgDocuments: (id: string) => apiFetch<{ documents: T.Document[] }>(`/api/admin/organizations/${id}/documents`),
   orgSenderIds: (id: string) => apiFetch<{ requests: T.SenderIdRequest[]; active: T.SenderId[] }>(`/api/admin/organizations/${id}/sender-ids`),
+  suspendSenderId: (senderId: string) => apiFetch<T.SenderId>(`/api/admin/sender-ids/${senderId}/suspend`, { method: "POST" }),
+  activateSenderId: (senderId: string) => apiFetch<T.SenderId>(`/api/admin/sender-ids/${senderId}/activate`, { method: "POST" }),
   orgWalletTransactions: (id: string, environment: T.Environment, cursor?: string) =>
     apiFetch<{ transactions: T.LedgerEntry[] }>(`/api/admin/organizations/${id}/wallet-transactions${qs({ environment, cursor })}`),
   orgMessages: (id: string, status?: string, cursor?: string) =>

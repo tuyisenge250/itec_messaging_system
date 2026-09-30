@@ -1,8 +1,9 @@
-import { promises as dns } from "node:dns";
+import { promises as dns, lookup as dnsLookupCallback, type LookupAddress } from "node:dns";
 import { isIP } from "node:net";
+import { Agent } from "undici";
 import { AppError } from "@/shared/errors/app-error";
 
-function isPrivateIpv4(ip: string): boolean {
+export function isPrivateIpv4(ip: string): boolean {
   const parts = ip.split(".").map(Number);
   const [a, b] = parts;
   if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return true; // malformed — refuse, don't guess
@@ -16,7 +17,7 @@ function isPrivateIpv4(ip: string): boolean {
   return false;
 }
 
-function isPrivateIpv6(ip: string): boolean {
+export function isPrivateIpv6(ip: string): boolean {
   const lower = ip.toLowerCase();
   if (lower === "::1" || lower === "::") return true; // loopback / unspecified
   if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // fc00::/7 unique local
@@ -78,4 +79,44 @@ export async function assertPubliclyRoutableUrl(rawUrl: string): Promise<void> {
       throw AppError.validation("URL resolves to a private or reserved address");
     }
   }
+}
+
+type DnsLookupCallback = (err: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void;
+
+/**
+ * A DNS lookup function (same shape `node:dns`'s own `lookup` uses) that
+ * filters out private/reserved addresses at the moment of resolution —
+ * passed to undici's Agent `connect.lookup` below so the filter runs at the
+ * actual TCP-connect step, not a separate pre-check. `assertPubliclyRoutableUrl`
+ * above still has its own window between checking and connecting (DNS could
+ * be repointed in between); this closes that gap for good, since there's no
+ * longer a second, unguarded resolution — every connection this dispatcher
+ * makes resolves through this same filter.
+ */
+function ssrfSafeLookup(hostname: string, options: unknown, callback: DnsLookupCallback): void {
+  dnsLookupCallback(hostname, { all: true }, (err, addresses) => {
+    if (err) return callback(err, []);
+    const list = addresses as unknown as Array<{ address: string; family: number }>;
+    const safe = list.filter((a) => (a.family === 4 ? !isPrivateIpv4(a.address) : !isPrivateIpv6(a.address)));
+    if (safe.length === 0) {
+      return callback(new Error(`SSRF guard: no publicly routable address for ${hostname}`), []);
+    }
+    callback(null, safe);
+  });
+}
+
+let sharedDispatcher: Agent | undefined;
+
+/**
+ * An undici Agent whose every connection resolves through ssrfSafeLookup.
+ * Must be used with undici's own `fetch` (imported from "undici"), not
+ * Node's global `fetch` — passing this Agent as `dispatcher` to the global
+ * fetch throws ("invalid onRequestStart method"), an interceptor-interface
+ * mismatch between Node's bundled undici and this externally-installed one.
+ */
+export function getSsrfSafeDispatcher(): Agent {
+  if (!sharedDispatcher) {
+    sharedDispatcher = new Agent({ connect: { lookup: ssrfSafeLookup } });
+  }
+  return sharedDispatcher;
 }
