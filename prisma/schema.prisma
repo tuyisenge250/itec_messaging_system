@@ -1,0 +1,2042 @@
+// ============================================================
+// SMS GATEWAY
+// ============================================================
+//
+// PostgreSQL
+// Prisma
+//
+// PostgreSQL = source of truth
+// Redis/BullMQ = asynchronous processing
+// Providers = external integrations
+// Outbox = reliable DB -> queue publishing
+//
+// ============================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// ENVIRONMENT
+// ============================================================
+
+enum Environment {
+  SANDBOX
+  PRODUCTION
+}
+
+// ============================================================
+// USER / AUTH
+// ============================================================
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  REMOVED
+}
+
+// ============================================================
+// ORGANIZATION
+// ============================================================
+
+enum OrganizationStatus {
+  PENDING
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+  SUSPENDED
+  ACTIVE
+}
+
+// ============================================================
+// DOCUMENTS
+// ============================================================
+
+enum StorageProvider {
+  LOCAL
+  CLOUDINARY
+}
+
+enum DocumentRequirementAppliesTo {
+  ORGANIZATION
+  SENDER_ID
+}
+
+enum DocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+// ============================================================
+// SENDER ID
+// ============================================================
+
+enum SenderIdRequestStatus {
+  DRAFT
+  SUBMITTED
+  DOCUMENTS_REQUIRED
+  UNDER_REVIEW
+
+  RURA_SUBMITTED
+  RURA_INFORMATION_REQUESTED
+  RURA_APPROVED
+  RURA_REJECTED
+
+  MNO_WHITELISTING
+
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum SenderIdStatus {
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+  CANCELLED
+}
+
+// ============================================================
+// WALLET
+// ============================================================
+
+enum LedgerEntryType {
+  CREDIT
+  SMS_USAGE
+  REFUND
+  BONUS
+  ADJUSTMENT
+  RESERVATION
+  RESERVATION_RELEASE
+}
+
+enum LedgerReferenceType {
+  PAYMENT
+  MESSAGE_RECIPIENT
+  CAMPAIGN
+  MANUAL
+  SYSTEM
+}
+
+enum ReservationStatus {
+  RESERVED
+  CONSUMED
+  RELEASED
+}
+
+// ============================================================
+// PAYMENTS
+// Payment exists only to purchase SMS credits.
+// ============================================================
+
+enum PaymentIntentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  TIMEOUT
+  CANCELLED
+  INSUFFICIENT_FUNDS
+  PROVIDER_UNAVAILABLE
+}
+
+enum PaymentTransactionStatus {
+  ACCEPTED
+  REJECTED
+  TIMEOUT
+  ERROR
+}
+
+// ============================================================
+// MESSAGING
+// ============================================================
+
+enum MessageType {
+  TRANSACTIONAL
+  BULK
+  CAMPAIGN
+}
+
+enum MessageStatus {
+  SCHEDULED
+  QUEUED
+  PROCESSING
+  SENT
+  DELIVERED
+  PARTIALLY_DELIVERED
+  FAILED
+  EXPIRED
+  REJECTED
+  CANCELLED
+}
+
+enum RecipientStatus {
+  QUEUED
+  PROCESSING
+  SENT
+  DELIVERED
+  FAILED
+  EXPIRED
+  REJECTED
+  CANCELLED
+}
+
+enum SmsEncoding {
+  GSM_7
+  UCS_2
+}
+
+// ============================================================
+// PROVIDERS
+// ============================================================
+
+enum ProviderCallStatus {
+  ACCEPTED
+  REJECTED
+  TIMEOUT
+  ERROR
+  UNAVAILABLE
+}
+
+enum ProviderKind {
+  SMS
+  PAYMENT
+}
+
+enum ProviderCredentialStatus {
+  ACTIVE
+  ROTATED
+  REVOKED
+}
+
+// ============================================================
+// OUTBOX
+// ============================================================
+
+enum OutboxStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+// ============================================================
+// CAMPAIGNS
+// ============================================================
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum RecurrenceInterval {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+// ============================================================
+// API KEYS
+// ============================================================
+
+enum ApiKeyStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+// ============================================================
+// WEBHOOKS
+// ============================================================
+
+enum WebhookDeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  EXHAUSTED
+}
+
+enum ProviderWebhookStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+// ============================================================
+// SIMULATOR
+// ============================================================
+
+enum SimulatorTriggerType {
+  PHONE_NUMBER
+  SENDER_ID
+  ORGANIZATION
+  MESSAGE_ID
+  API_KEY
+  MESSAGE_CONTENT
+  RANDOM_PERCENTAGE
+}
+
+enum SimulatorProviderStatus {
+  ACCEPTED
+  REJECTED
+  TIMEOUT
+  UNAVAILABLE
+}
+
+enum SimulatorFinalStatus {
+  DELIVERED
+  FAILED
+  EXPIRED
+  UNDELIVERED
+}
+
+// ============================================================
+// FRAUD
+// ============================================================
+
+enum FraudRuleType {
+  REQUESTS_PER_MINUTE
+  SMS_PER_MINUTE
+  SMS_PER_HOUR
+  SMS_PER_DAY
+  ORGANIZATION_QUOTA
+  API_KEY_QUOTA
+  IP_RATE_LIMIT
+  DESTINATION_VELOCITY
+  SPENDING_LIMIT
+}
+
+enum FraudRuleAction {
+  BLOCK
+  FLAG_FOR_REVIEW
+  THROTTLE
+}
+
+enum FraudRuleScope {
+  GLOBAL
+  ORGANIZATION
+  API_KEY
+}
+
+enum FraudEventSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum FraudEventStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+// ============================================================
+// AUDIT
+// ============================================================
+
+enum AuditActorType {
+  USER
+  API_KEY
+  SYSTEM
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+
+enum NotificationType {
+  SENDER_ID
+  PAYMENT
+  WALLET
+  SECURITY
+  FRAUD
+  SYSTEM
+}
+
+// ============================================================
+// USER
+// ============================================================
+
+model User {
+  id String @id @default(cuid())
+
+  email        String @unique
+  passwordHash String
+
+  name String?
+
+  status UserStatus @default(ACTIVE)
+
+  // Global platform administrator.
+  // Organization-level permissions are handled through RBAC.
+  isPlatformAdmin Boolean @default(false)
+
+  // Set only when this user's PII has been anonymized as part of a GDPR
+  // erasure request for an organization they solely belonged to — see
+  // modules/organizations/gdpr-service.ts. Presence, not a status enum value,
+  // is the marker so existing UserStatus semantics aren't overloaded.
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  // Authentication
+  // Email verification and MFA are intentionally not implemented yet — no email/SMS/MFA
+  // provider is configured for this stage. See docs/architecture.md "Authentication".
+  sessions            Session[]
+  passwordResetTokens PasswordResetToken[]
+
+  // Organizations
+  memberships OrganizationMembership[]
+
+  // Sender ID
+  createdSenderIdRequests  SenderIdRequest[] @relation("SenderIdRequestCreator")
+  reviewedSenderIdRequests SenderIdRequest[] @relation("SenderIdRequestReviewer")
+
+  senderIdStatusChanges SenderIdRequestStatusHistory[]
+
+  // Documents
+  uploadedDocuments Document[] @relation("DocumentUploader")
+  reviewedDocuments Document[] @relation("DocumentReviewer")
+
+  // API
+  createdApiKeys ApiKey[]
+
+  // Messaging
+  createdMessages  Message[]
+  createdCampaigns Campaign[]
+
+  // Payments
+  initiatedPayments PaymentIntent[]
+
+  // Wallet
+  walletLedgerEntries WalletLedgerEntry[]
+
+  // Fraud
+  reviewedFraudEvents FraudEvent[] @relation("FraudEventReviewer")
+
+  // Audit
+  auditEvents AuditEvent[] @relation("AuditUser")
+
+  // Notifications
+  notifications Notification[]
+
+  // Simulator
+  createdSimulatorScenarios SimulatorScenario[]
+
+  createdRoles Role[] @relation("RoleCreator")
+
+  // System settings
+  updatedSettings SystemSetting[]
+
+  @@index([status])
+  @@index([isPlatformAdmin])
+}
+
+// ============================================================
+// SESSION
+// ============================================================
+
+model Session {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String @unique
+
+  userAgent String?
+  ipAddress String?
+
+  expiresAt DateTime  @db.Timestamptz(3)
+  revokedAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ============================================================
+// PASSWORD RESET
+// ============================================================
+
+model PasswordResetToken {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String @unique
+
+  expiresAt  DateTime  @db.Timestamptz(3)
+  consumedAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ============================================================
+// ROLE
+// ============================================================
+
+model Role {
+  id String @id @default(cuid())
+
+  name        String
+  description String?
+
+  isSystem Boolean @default(false)
+
+  // Null = a global/system role (ADMIN, OPERATOR, ...), seeded once and usable by
+  // every organization — the original design. Set = a custom role an organization's
+  // own admin created (see modules/roles), visible and assignable only within that
+  // organization. Postgres treats each NULL as distinct under a unique index, so this
+  // constraint only actually enforces per-organization name uniqueness for custom
+  // roles; global role name uniqueness is guaranteed instead by prisma/seed.ts always
+  // upserting by name and by createRole/updateRole (modules/roles/service.ts) never
+  // allowing organizationId to be unset.
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdByUserId String?
+  createdBy       User?   @relation("RoleCreator", fields: [createdByUserId], references: [id])
+
+  memberships OrganizationMembership[]
+  permissions RolePermission[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+// ============================================================
+// PERMISSION
+// ============================================================
+
+model Permission {
+  id String @id @default(cuid())
+
+  code        String  @unique
+  description String?
+
+  roles RolePermission[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+}
+
+// ============================================================
+// ROLE PERMISSION
+// ============================================================
+
+model RolePermission {
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+// ============================================================
+// ORGANIZATION
+// ============================================================
+
+model Organization {
+  id String @id @default(cuid())
+
+  legalName   String
+  tradingName String?
+
+  registrationNumber String?
+  tin                String?
+
+  businessType String?
+  industry     String?
+  description  String?
+
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  country      String  @default("RW")
+
+  phone   String?
+  email   String?
+  website String?
+
+  legalRepresentativeName  String?
+  legalRepresentativeEmail String?
+  legalRepresentativePhone String?
+
+  status OrganizationStatus @default(PENDING)
+
+  pricingPlanId String?
+  pricingPlan   PricingPlan? @relation(fields: [pricingPlanId], references: [id])
+
+  // Set when this organization has gone through GDPR erasure (see
+  // modules/organizations/gdpr-service.ts) — its PII fields have been
+  // anonymized and status set to SUSPENDED. Financial/audit records are
+  // deliberately retained (legal-obligation exception) and are unaffected.
+  deletedAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  memberships OrganizationMembership[]
+  roles       Role[]
+
+  documents Document[]
+
+  senderIdRequests SenderIdRequest[]
+  senderIds        SenderId[]
+
+  wallets Wallet[]
+
+  contacts      Contact[]
+  contactGroups ContactGroup[]
+  templates     Template[]
+
+  campaigns Campaign[]
+
+  messages Message[]
+
+  messageRecipients MessageRecipient[]
+
+  apiKeys ApiKey[]
+
+  webhooks Webhook[]
+
+  paymentIntents PaymentIntent[]
+  invoices       Invoice[]
+
+  idempotencyRecords IdempotencyRecord[]
+
+  fraudRules  FraudRule[]
+  fraudEvents FraudEvent[]
+
+  auditEvents AuditEvent[]
+
+  notifications Notification[]
+
+  @@index([status])
+  @@index([tin])
+}
+
+// ============================================================
+// ORGANIZATION MEMBERSHIP
+// ============================================================
+
+model OrganizationMembership {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id])
+
+  status MembershipStatus @default(ACTIVE)
+
+  invitedAt DateTime? @db.Timestamptz(3)
+  joinedAt  DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([roleId])
+}
+
+// ============================================================
+// DOCUMENT REQUIREMENT
+// ============================================================
+
+model DocumentRequirement {
+  id String @id @default(cuid())
+
+  code        String  @unique
+  label       String
+  description String?
+
+  appliesTo DocumentRequirementAppliesTo
+
+  required Boolean @default(true)
+  active   Boolean @default(true)
+
+  allowedMimeTypes String[]
+
+  maxSizeBytes Int @default(10485760)
+
+  documents Document[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([appliesTo, active])
+}
+
+// ============================================================
+// DOCUMENT
+// ============================================================
+
+model Document {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  senderIdRequestId String?
+  senderIdRequest   SenderIdRequest? @relation(fields: [senderIdRequestId], references: [id])
+
+  documentRequirementId String
+  documentRequirement   DocumentRequirement @relation(fields: [documentRequirementId], references: [id])
+
+  originalFilename String
+
+  storageProvider StorageProvider
+  storageKey      String
+
+  mimeType  String
+  sizeBytes Int
+
+  status DocumentStatus @default(PENDING)
+
+  uploadedByUserId String
+  uploadedBy       User   @relation("DocumentUploader", fields: [uploadedByUserId], references: [id])
+
+  reviewedByUserId String?
+  reviewedBy       User?   @relation("DocumentReviewer", fields: [reviewedByUserId], references: [id])
+
+  reviewNotes String?
+  reviewedAt  DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([organizationId])
+  @@index([senderIdRequestId])
+  @@index([status])
+}
+
+// ============================================================
+// SENDER ID REQUEST
+// ============================================================
+
+model SenderIdRequest {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  environment Environment
+
+  requestedValue String
+
+  purpose              String?
+  sampleMessageContent String?
+
+  status SenderIdRequestStatus @default(DRAFT)
+
+  // Internal review
+  internalReviewerUserId String?
+  internalReviewer       User?   @relation("SenderIdRequestReviewer", fields: [internalReviewerUserId], references: [id])
+
+  internalReviewNotes String?
+
+  // RURA
+  ruraReferenceNumber String?
+
+  ruraSubmittedAt DateTime? @db.Timestamptz(3)
+  ruraApprovedAt  DateTime? @db.Timestamptz(3)
+  ruraRejectedAt  DateTime? @db.Timestamptz(3)
+
+  ruraInformationRequestNotes String?
+
+  // MNO
+  mnoWhitelistSubmittedAt DateTime? @db.Timestamptz(3)
+  mnoWhitelistCompletedAt DateTime? @db.Timestamptz(3)
+
+  // Final approval
+  approvedSenderIdId String?   @unique
+  approvedSenderId   SenderId? @relation("ApprovedSenderId", fields: [approvedSenderIdId], references: [id])
+
+  createdByUserId String
+  createdBy       User   @relation("SenderIdRequestCreator", fields: [createdByUserId], references: [id])
+
+  submittedAt DateTime? @db.Timestamptz(3)
+  completedAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  documents     Document[]
+  statusHistory SenderIdRequestStatusHistory[]
+
+  @@index([organizationId, status])
+  @@index([environment])
+  @@index([requestedValue])
+}
+
+// ============================================================
+// SENDER ID
+// ============================================================
+
+model SenderId {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  environment Environment
+
+  value String
+
+  status SenderIdStatus @default(ACTIVE)
+
+  activatedAt DateTime? @db.Timestamptz(3)
+  suspendedAt DateTime? @db.Timestamptz(3)
+  expiresAt   DateTime? @db.Timestamptz(3)
+
+  approvedRequest SenderIdRequest? @relation("ApprovedSenderId")
+
+  messages  Message[]
+  campaigns Campaign[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, value, environment])
+  @@index([organizationId, status])
+  @@index([environment, status])
+}
+
+// ============================================================
+// SENDER ID STATUS HISTORY
+// ============================================================
+
+model SenderIdRequestStatusHistory {
+  id String @id @default(cuid())
+
+  senderIdRequestId String
+  senderIdRequest   SenderIdRequest @relation(fields: [senderIdRequestId], references: [id], onDelete: Cascade)
+
+  fromStatus SenderIdRequestStatus?
+  toStatus   SenderIdRequestStatus
+
+  actorUserId String?
+  actor       User?   @relation(fields: [actorUserId], references: [id])
+
+  note String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([senderIdRequestId, createdAt])
+}
+
+// ============================================================
+// PRICING PLAN
+// ============================================================
+
+model PricingPlan {
+  id String @id @default(cuid())
+
+  name String
+
+  pricePerSegmentMinorUnits Int
+
+  currency String @default("RWF")
+
+  isDefault Boolean @default(false)
+  active    Boolean @default(true)
+
+  effectiveFrom DateTime  @default(now()) @db.Timestamptz(3)
+  effectiveTo   DateTime? @db.Timestamptz(3)
+
+  organizations Organization[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([active, isDefault])
+}
+
+model SmsPackage {
+  id String @id @default(cuid())
+
+  name        String
+  description String?
+
+  priceMinorUnits        Int
+  creditAmountMinorUnits Int
+  bonusMinorUnits        Int @default(0)
+
+  currency String @default("RWF")
+
+  active Boolean @default(true)
+
+  paymentIntents PaymentIntent[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([active])
+}
+
+// ============================================================
+// WALLET
+//
+// available + reserved = total wallet balance
+// ============================================================
+
+model Wallet {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  environment Environment
+
+  availableBalanceMinorUnits Int @default(0)
+
+  reservedBalanceMinorUnits Int @default(0)
+
+  currency String @default("RWF")
+
+  ledgerEntries WalletLedgerEntry[]
+  reservations  WalletReservation[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, environment])
+}
+
+// ============================================================
+// WALLET LEDGER
+// ============================================================
+
+model WalletLedgerEntry {
+  id String @id @default(cuid())
+
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id])
+
+  organizationId String
+
+  type LedgerEntryType
+
+  amountMinorUnits Int
+
+  balanceAfterMinorUnits  Int
+  reservedAfterMinorUnits Int
+
+  referenceType LedgerReferenceType?
+  referenceId   String?
+
+  description String?
+
+  createdByUserId String?
+  createdBy       User?   @relation(fields: [createdByUserId], references: [id])
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([walletId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([referenceType, referenceId])
+}
+
+// ============================================================
+// WALLET RESERVATION
+// ============================================================
+
+model WalletReservation {
+  id String @id @default(cuid())
+
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id])
+
+  organizationId String
+
+  recipientId String @unique
+
+  recipient MessageRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  amountMinorUnits Int
+
+  currency String @default("RWF")
+
+  status ReservationStatus @default(RESERVED)
+
+  reservedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  consumedAt DateTime? @db.Timestamptz(3)
+  releasedAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([walletId, status])
+  @@index([organizationId, status])
+}
+
+// ============================================================
+// PAYMENT INTENT
+//
+// This is ONLY for buying SMS credits.
+// ============================================================
+
+model PaymentIntent {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  environment Environment
+
+  packageId String?
+  package   SmsPackage? @relation(fields: [packageId], references: [id])
+
+  amountMinorUnits Int
+  currency         String @default("RWF")
+
+  status PaymentIntentStatus @default(PENDING)
+
+  providerCode String
+
+  providerReference String?
+
+  idempotencyKey String
+
+  initiatedByUserId String
+  initiatedBy       User   @relation(fields: [initiatedByUserId], references: [id])
+
+  metadata Json?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  completedAt DateTime? @db.Timestamptz(3)
+
+  transactions PaymentTransaction[]
+  invoice      Invoice?
+
+  @@unique([organizationId, environment, idempotencyKey])
+  @@index([organizationId, environment, createdAt])
+  @@index([status])
+}
+
+// ============================================================
+// PAYMENT TRANSACTION
+// ============================================================
+
+model PaymentTransaction {
+  id String @id @default(cuid())
+
+  paymentIntentId String
+
+  paymentIntent PaymentIntent @relation(fields: [paymentIntentId], references: [id], onDelete: Cascade)
+
+  providerCode String
+
+  requestPayload  Json?
+  responsePayload Json?
+
+  status PaymentTransactionStatus
+
+  attempt Int
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([paymentIntentId, createdAt])
+}
+
+// ============================================================
+// INVOICE
+// ============================================================
+
+model Invoice {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  paymentIntentId String        @unique
+  paymentIntent   PaymentIntent @relation(fields: [paymentIntentId], references: [id])
+
+  // Atomic, gap-free-per-success sequence used to render a display number as
+  // `INV-${String(sequence).padStart(6, "0")}` — computed on read, not stored,
+  // to avoid a derived column drifting out of sync.
+  sequence Int @default(autoincrement())
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([organizationId])
+}
+
+// ============================================================
+// CONTACT
+// ============================================================
+
+model Contact {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  phoneRaw        String
+  phoneNormalized String
+
+  firstName String?
+  lastName  String?
+  email     String?
+
+  attributes Json?
+
+  isSubscribed Boolean @default(true)
+
+  groupMemberships ContactGroupMember[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, phoneNormalized])
+  @@index([organizationId])
+}
+
+// ============================================================
+// CONTACT GROUP
+// ============================================================
+
+model ContactGroup {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  name        String
+  description String?
+
+  members   ContactGroupMember[]
+  campaigns Campaign[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, name])
+}
+
+// ============================================================
+// CONTACT GROUP MEMBER
+// ============================================================
+
+model ContactGroupMember {
+  contactGroupId String
+  contactGroup   ContactGroup @relation(fields: [contactGroupId], references: [id], onDelete: Cascade)
+
+  contactId String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([contactGroupId, contactId])
+  @@index([contactId])
+}
+
+// ============================================================
+// TEMPLATE
+// ============================================================
+
+model Template {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  name    String
+  content String
+
+  variables String[]
+
+  category String?
+
+  isActive Boolean @default(true)
+
+  campaigns Campaign[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, name])
+}
+
+// ============================================================
+// CAMPAIGN
+// ============================================================
+
+model Campaign {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  environment Environment
+
+  name String
+
+  templateId String?
+  template   Template? @relation(fields: [templateId], references: [id])
+
+  senderIdId String
+  senderId   SenderId @relation(fields: [senderIdId], references: [id])
+
+  contactGroupId String?
+  contactGroup   ContactGroup? @relation(fields: [contactGroupId], references: [id])
+
+  status CampaignStatus @default(DRAFT)
+
+  scheduledAt DateTime? @db.Timestamptz(3)
+
+  // Recurrence — when isRecurring is true, nextRunAt is recomputed after each
+  // send per recurrenceInterval until recurrenceEndAt (if set) has passed.
+  isRecurring        Boolean             @default(false)
+  recurrenceInterval RecurrenceInterval?
+  recurrenceEndAt    DateTime?           @db.Timestamptz(3)
+  nextRunAt          DateTime?           @db.Timestamptz(3)
+
+  batchSize Int @default(1000)
+
+  totalRecipients Int @default(0)
+
+  createdByUserId String
+  createdBy       User   @relation(fields: [createdByUserId], references: [id])
+
+  batches  CampaignBatch[]
+  messages Message[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([organizationId, environment, status])
+  @@index([scheduledAt])
+  @@index([status, nextRunAt])
+}
+
+// ============================================================
+// CAMPAIGN BATCH
+// ============================================================
+
+model CampaignBatch {
+  id String @id @default(cuid())
+
+  campaignId String
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  batchNumber Int
+
+  messageId String?  @unique
+  message   Message? @relation(fields: [messageId], references: [id])
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([campaignId, batchNumber])
+}
+
+// ============================================================
+// MESSAGE
+// ============================================================
+
+model Message {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  environment Environment
+
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id])
+
+  senderIdId String
+  senderId   SenderId @relation(fields: [senderIdId], references: [id])
+
+  apiKeyId String?
+  apiKey   ApiKey? @relation(fields: [apiKeyId], references: [id])
+
+  type MessageType
+
+  status MessageStatus @default(QUEUED)
+
+  content String
+
+  clientReference String?
+
+  idempotencyKey String?
+
+  scheduledAt DateTime? @db.Timestamptz(3)
+
+  totalRecipients Int @default(0)
+
+  queuedCount Int @default(0)
+
+  processingCount Int @default(0)
+
+  sentCount Int @default(0)
+
+  deliveredCount Int @default(0)
+
+  failedCount Int @default(0)
+
+  totalCostMinorUnits Int @default(0)
+
+  currency String @default("RWF")
+
+  createdByUserId String?
+  createdBy       User?   @relation(fields: [createdByUserId], references: [id])
+
+  recipients MessageRecipient[]
+
+  campaignBatch CampaignBatch?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, environment, idempotencyKey])
+  @@index([organizationId, environment, createdAt])
+  @@index([organizationId, environment, status])
+  @@index([campaignId])
+  @@index([senderIdId])
+  @@index([apiKeyId])
+  @@index([scheduledAt])
+}
+
+// ============================================================
+// MESSAGE RECIPIENT
+// ============================================================
+
+model MessageRecipient {
+  id String @id @default(cuid())
+
+  messageId String
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  organizationId String
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  phoneRaw        String
+  phoneNormalized String
+
+  status RecipientStatus @default(QUEUED)
+
+  encoding SmsEncoding
+
+  segmentCount Int
+
+  costMinorUnits Int
+
+  currency String @default("RWF")
+
+  providerCode String?
+
+  providerMessageId String?
+
+  attempts Int @default(0)
+
+  failureCode   String?
+  failureReason String?
+
+  queuedAt     DateTime? @db.Timestamptz(3)
+  processingAt DateTime? @db.Timestamptz(3)
+  sentAt       DateTime? @db.Timestamptz(3)
+  deliveredAt  DateTime? @db.Timestamptz(3)
+  failedAt     DateTime? @db.Timestamptz(3)
+
+  lastAttemptAt DateTime? @db.Timestamptz(3)
+  nextAttemptAt DateTime? @db.Timestamptz(3)
+
+  reservation WalletReservation?
+
+  providerTransactions ProviderTransaction[]
+
+  simulatorExecutions SimulatorExecution[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  // Postgres treats each NULL as distinct, so recipients not yet assigned a
+  // providerMessageId never collide — this only guards against two different
+  // recipients ending up mapped to the same live provider message id, and
+  // gives webhook lookups a safe, unique key to look up by.
+  @@unique([providerCode, providerMessageId])
+  @@index([organizationId, status])
+  @@index([messageId, status])
+  @@index([phoneNormalized])
+  @@index([nextAttemptAt])
+  @@index([createdAt])
+}
+
+// ============================================================
+// PROVIDER TRANSACTION
+// ============================================================
+
+model ProviderTransaction {
+  id String @id @default(cuid())
+
+  recipientId String
+
+  recipient MessageRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  providerCode String
+
+  providerMessageId String?
+
+  requestPayload  Json?
+  responsePayload Json?
+
+  status ProviderCallStatus
+
+  attempt Int
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([recipientId, createdAt])
+  @@index([providerCode, createdAt])
+  @@index([providerMessageId])
+}
+
+// ============================================================
+// TRANSACTIONAL OUTBOX
+//
+// IMPORTANT:
+// aggregateId is intentionally NOT a foreign key.
+//
+// Example:
+//
+// aggregateType = "MESSAGE"
+// aggregateId   = message.id
+//
+// or:
+//
+// aggregateType = "PAYMENT_INTENT"
+// aggregateId   = payment.id
+//
+// ============================================================
+
+model OutboxEvent {
+  id String @id @default(cuid())
+
+  // Intentionally NOT a foreign key — see the note above. aggregateId is a loose
+  // reference (e.g. a Message.id when aggregateType = "MESSAGE"), resolved by the
+  // publisher at publish time, not enforced by the database.
+  aggregateType String
+  aggregateId   String
+
+  eventType String
+
+  payload Json
+
+  status OutboxStatus @default(PENDING)
+
+  attempts Int @default(0)
+
+  lastError String?
+
+  // When this event next becomes eligible for a publish attempt — set to now() on
+  // creation, and pushed forward with backoff on each failed publish attempt.
+  nextAttemptAt DateTime @default(now()) @db.Timestamptz(3)
+
+  publishedAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([status, nextAttemptAt])
+  @@index([aggregateType, aggregateId])
+  @@index([eventType, status])
+}
+
+// ============================================================
+// IDEMPOTENCY
+// ============================================================
+
+model IdempotencyRecord {
+  id String @id @default(cuid())
+
+  organizationId String
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  environment Environment
+
+  scope String
+
+  key String
+
+  requestHash String?
+
+  responseSnapshot Json?
+
+  statusCode Int?
+
+  expiresAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([organizationId, environment, scope, key])
+  @@index([expiresAt])
+}
+
+// ============================================================
+// API KEY
+// ============================================================
+
+model ApiKey {
+  id String @id @default(cuid())
+
+  organizationId String
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  environment Environment
+
+  name String
+
+  // Public identifier
+  publicId String @unique
+
+  // Never store raw API secret
+  hashedSecret String
+
+  displayPrefix String
+
+  scopes String[]
+
+  status ApiKeyStatus @default(ACTIVE)
+
+  expiresAt DateTime? @db.Timestamptz(3)
+
+  lastUsedAt DateTime? @db.Timestamptz(3)
+
+  lastRotatedAt DateTime? @db.Timestamptz(3)
+
+  createdByUserId String
+
+  createdBy User @relation(fields: [createdByUserId], references: [id])
+
+  rotatedFromId String? @unique
+
+  rotatedFrom ApiKey? @relation("ApiKeyRotation", fields: [rotatedFromId], references: [id])
+
+  rotatedTo ApiKey? @relation("ApiKeyRotation")
+
+  revokedAt DateTime? @db.Timestamptz(3)
+
+  messages Message[]
+
+  auditEvents AuditEvent[] @relation("AuditApiKey")
+
+  fraudEvents FraudEvent[]
+
+  targetedByFraudRules FraudRule[] @relation("FraudRuleTarget")
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([organizationId, environment])
+  @@index([status])
+}
+
+// ============================================================
+// CUSTOMER WEBHOOK
+// ============================================================
+
+model Webhook {
+  id String @id @default(cuid())
+
+  organizationId String
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  environment Environment
+
+  url String
+
+  // Encrypted because the system must retrieve it
+  // to sign outgoing webhook requests.
+  secretEncrypted String
+
+  events String[]
+
+  isActive Boolean @default(true)
+
+  deliveries WebhookDelivery[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([organizationId, environment])
+}
+
+// ============================================================
+// WEBHOOK DELIVERY
+// ============================================================
+
+model WebhookDelivery {
+  id String @id @default(cuid())
+
+  webhookId String
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  eventType String
+
+  payload Json
+
+  responseStatus Int?
+
+  attempts Int @default(0)
+
+  status WebhookDeliveryStatus @default(PENDING)
+
+  lastAttemptAt DateTime? @db.Timestamptz(3)
+
+  nextAttemptAt DateTime? @db.Timestamptz(3)
+
+  lastError String?
+
+  deliveredAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([webhookId, status])
+  @@index([status, nextAttemptAt])
+}
+
+// ============================================================
+// PROVIDER CONFIG
+// ============================================================
+
+model ProviderConfig {
+  id String @id @default(cuid())
+
+  providerType ProviderKind
+
+  // Stable machine-readable identifier.
+  // Example:
+  // SIMULATOR
+  // MTN_SMS
+  // AIRTEL_SMS
+  // MTN_MOMO
+  providerCode String
+
+  displayName String
+
+  environment Environment
+
+  isActive Boolean @default(true)
+
+  priority Int @default(0)
+
+  rateLimitPerSecond Int?
+  maxConcurrency     Int?
+
+  timeoutMs Int?
+
+  retryCount Int?
+
+  backoffBaseMs Int?
+
+  circuitBreakerFailureThreshold Int?
+
+  circuitBreakerCooldownMs Int?
+
+  // Non-secret configuration only.
+  // NEVER put API secrets here.
+  settings Json?
+
+  credentials ProviderCredential[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([providerCode, environment, providerType])
+  @@index([providerType, environment, isActive])
+}
+
+// ============================================================
+// PROVIDER CREDENTIAL
+// ============================================================
+
+model ProviderCredential {
+  id String @id @default(cuid())
+
+  providerConfigId String
+
+  providerConfig ProviderConfig @relation(fields: [providerConfigId], references: [id], onDelete: Cascade)
+
+  key String
+
+  // Encrypted value.
+  encryptedValue String
+
+  status ProviderCredentialStatus @default(ACTIVE)
+
+  expiresAt DateTime? @db.Timestamptz(3)
+
+  rotatedAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([providerConfigId, key])
+  @@index([providerConfigId, status])
+}
+
+// ============================================================
+// PROVIDER WEBHOOK EVENT
+//
+// Prevents duplicate provider callbacks.
+// ============================================================
+
+model ProviderWebhookEvent {
+  id String @id @default(cuid())
+
+  providerCode String
+
+  environment Environment
+
+  externalEventId String?
+
+  eventType String
+
+  payload Json
+
+  signatureValid Boolean?
+
+  status ProviderWebhookStatus @default(RECEIVED)
+
+  processingAttempts Int @default(0)
+
+  lastError String?
+
+  receivedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  processedAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([providerCode, environment, externalEventId])
+  @@index([providerCode, environment])
+  @@index([status])
+  @@index([receivedAt])
+}
+
+// ============================================================
+// SIMULATOR SCENARIO
+// ============================================================
+
+model SimulatorScenario {
+  id String @id @default(cuid())
+
+  environment Environment
+
+  name String
+
+  description String?
+
+  triggerType SimulatorTriggerType
+
+  triggerValue String?
+
+  initialProviderStatus SimulatorProviderStatus
+
+  finalDeliveryStatus SimulatorFinalStatus
+
+  delayMs Int @default(3000)
+
+  errorCode String?
+
+  errorMessage String?
+
+  // 0 - 100
+  probabilityPercent Float?
+
+  enabled Boolean @default(true)
+
+  priority Int @default(0)
+
+  createdByUserId String
+
+  createdBy User @relation(fields: [createdByUserId], references: [id])
+
+  executions SimulatorExecution[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([environment, enabled, priority])
+  @@index([triggerType])
+}
+
+// ============================================================
+// SIMULATOR EXECUTION
+// ============================================================
+
+model SimulatorExecution {
+  id String @id @default(cuid())
+
+  scenarioId String?
+
+  scenario SimulatorScenario? @relation(fields: [scenarioId], references: [id])
+
+  recipientId String
+
+  recipient MessageRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  matchedTriggerType SimulatorTriggerType?
+
+  initialStatus SimulatorProviderStatus
+
+  finalStatus SimulatorFinalStatus?
+
+  delayMsApplied Int
+
+  errorCode String?
+
+  errorMessage String?
+
+  executedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  resolvedAt DateTime? @db.Timestamptz(3)
+
+  @@index([recipientId])
+  @@index([scenarioId])
+  @@index([executedAt])
+}
+
+// ============================================================
+// FRAUD RULE
+// ============================================================
+
+model FraudRule {
+  id String @id @default(cuid())
+
+  name String
+
+  description String?
+
+  ruleType FraudRuleType
+
+  thresholdValue Int
+
+  windowSeconds Int?
+
+  action FraudRuleAction
+
+  scope FraudRuleScope @default(GLOBAL)
+
+  organizationId String?
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Set when scope = API_KEY: this rule applies only to sends made with this specific key.
+  apiKeyId String?
+
+  apiKey ApiKey? @relation("FraudRuleTarget", fields: [apiKeyId], references: [id], onDelete: Cascade)
+
+  enabled Boolean @default(true)
+
+  fraudEvents FraudEvent[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([ruleType, enabled])
+  @@index([organizationId])
+  @@index([apiKeyId])
+}
+
+// ============================================================
+// FRAUD EVENT
+// ============================================================
+
+model FraudEvent {
+  id String @id @default(cuid())
+
+  organizationId String?
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  ruleId String?
+
+  rule FraudRule? @relation(fields: [ruleId], references: [id])
+
+  reviewedByUserId String?
+
+  reviewedByUser User? @relation("FraudEventReviewer", fields: [reviewedByUserId], references: [id])
+
+  apiKeyId String?
+
+  apiKey ApiKey? @relation(fields: [apiKeyId], references: [id])
+
+  messageId String?
+
+  eventType String
+
+  severity FraudEventSeverity
+
+  description String
+
+  metadata Json?
+
+  ipAddress String?
+
+  phoneNumber String?
+
+  status FraudEventStatus @default(OPEN)
+
+  reviewedAt DateTime? @db.Timestamptz(3)
+
+  reviewNotes String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([organizationId, createdAt])
+  @@index([status])
+  @@index([severity])
+  @@index([apiKeyId])
+  @@index([messageId])
+  @@index([ipAddress])
+}
+
+// ============================================================
+// AUDIT EVENT
+// ============================================================
+
+model AuditEvent {
+  id String @id @default(cuid())
+
+  organizationId String?
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  actorType AuditActorType
+
+  actorUserId String?
+
+  actorUser User? @relation("AuditUser", fields: [actorUserId], references: [id])
+
+  actorApiKeyId String?
+
+  actorApiKey ApiKey? @relation("AuditApiKey", fields: [actorApiKeyId], references: [id])
+
+  action String
+
+  resourceType String
+
+  resourceId String?
+
+  metadata Json?
+
+  ipAddress String?
+
+  userAgent String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([organizationId, createdAt])
+  @@index([resourceType, resourceId])
+  @@index([actorUserId])
+  @@index([actorApiKeyId])
+  @@index([action])
+}
+
+// ============================================================
+// NOTIFICATION
+// ============================================================
+
+model Notification {
+  id String @id @default(cuid())
+
+  organizationId String?
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  userId String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type NotificationType
+
+  title String
+
+  message String
+
+  data Json?
+
+  readAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, readAt])
+  @@index([organizationId, createdAt])
+}
+
+// ============================================================
+// SYSTEM SETTINGS
+// ============================================================
+
+/**
+ * Runtime-editable configuration, admin-managed. Each key mirrors (and, once a row
+ * exists, overrides) a matching default in infrastructure/config/env.ts — see
+ * modules/settings/service.ts::getSettingValue, which always takes the env value as
+ * the fallback so a missing row never breaks anything. Not every env-driven value is
+ * migrated here — only ones with a genuine runtime-tuning use case. Values are stored
+ * as plain strings (numbers/booleans included) and parsed by the caller, since callers
+ * already know the expected type from their own fallback.
+ */
+model SystemSetting {
+  id String @id @default(cuid())
+
+  key   String @unique
+  value String
+
+  description String?
+
+  updatedByUserId String?
+  updatedBy       User?   @relation(fields: [updatedByUserId], references: [id])
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+}
