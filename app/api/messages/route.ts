@@ -30,11 +30,11 @@ export const POST = withRoute(async (request, { requestId }) => {
   // sending twice; omit it and the send behaves exactly as before.
   const idempotencyKey = request.headers.get("idempotency-key");
   if (idempotencyKey) {
-    const { result } = await withIdempotency(
+    const { result, replayed } = await withIdempotency(
       { organizationId: actor.organizationId, environment, scope: "messages.send", key: idempotencyKey, requestBody: body },
       () => sendMessage(actor, actor.organizationId!, environment, body, idempotencyKey),
     );
-    return created(result, requestId);
+    return created({ ...result, replayed }, requestId);
   }
 
   const result = await sendMessage(actor, actor.organizationId, environment, body);
