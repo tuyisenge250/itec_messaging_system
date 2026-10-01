@@ -13,6 +13,10 @@ export interface SmsDeliveryJobData {
   finalStatus: "DELIVERED" | "FAILED" | "EXPIRED" | "UNDELIVERED";
   errorCode?: string;
   errorMessage?: string;
+  /** Set only by the simulator (modules/simulator/simulator-sms-provider.ts) — lets the
+   * sms-delivery worker resolve the originating SimulatorExecution row. A real provider's
+   * inbound webhook has no such concept and never sets this. */
+  executionId?: string;
 }
 
 export interface OutboxPublishJobData {

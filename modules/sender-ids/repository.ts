@@ -1,5 +1,5 @@
 import { prisma } from "@/infrastructure/database/prisma";
-import type { Prisma, SenderIdRequestStatus } from "@/generated/prisma/client";
+import type { Prisma, SenderIdRequestStatus, Environment } from "@/generated/prisma/client";
 
 export const senderIdRepository = {
   create(data: Prisma.SenderIdRequestCreateInput) {
@@ -54,6 +54,11 @@ export const senderIdRepository = {
 
   findSenderIdById(id: string) {
     return prisma.senderId.findUnique({ where: { id } });
+  },
+
+  /** value is unique per (organizationId, environment) — see the @@unique on SenderId. */
+  findSenderIdByValue(organizationId: string, value: string, environment: Environment) {
+    return prisma.senderId.findUnique({ where: { organizationId_value_environment: { organizationId, value, environment } } });
   },
 
   updateSenderIdStatus(id: string, status: "ACTIVE" | "SUSPENDED" | "EXPIRED" | "CANCELLED") {

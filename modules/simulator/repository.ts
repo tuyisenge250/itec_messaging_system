@@ -1,5 +1,5 @@
 import { prisma } from "@/infrastructure/database/prisma";
-import type { Prisma, Environment } from "@/generated/prisma/client";
+import type { Prisma, Environment, SimulatorFinalStatus } from "@/generated/prisma/client";
 
 export const simulatorRepository = {
   listEnabledByPriority(environment: Environment) {
@@ -33,8 +33,8 @@ export const simulatorRepository = {
     return prisma.simulatorExecution.create({ data });
   },
 
-  resolveExecution(id: string) {
-    return prisma.simulatorExecution.update({ where: { id }, data: { resolvedAt: new Date() } });
+  resolveExecution(id: string, finalStatus: SimulatorFinalStatus) {
+    return prisma.simulatorExecution.update({ where: { id }, data: { finalStatus, resolvedAt: new Date() } });
   },
 
   listExecutions(params: { take: number; cursor?: string }) {

@@ -32,7 +32,7 @@ export const POST = withRoute(async (request, { requestId }) => {
   if (idempotencyKey) {
     const { result } = await withIdempotency(
       { organizationId: actor.organizationId, environment, scope: "messages.send", key: idempotencyKey, requestBody: body },
-      () => sendMessage(actor, actor.organizationId!, environment, body),
+      () => sendMessage(actor, actor.organizationId!, environment, body, idempotencyKey),
     );
     return created(result, requestId);
   }

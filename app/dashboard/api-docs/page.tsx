@@ -31,10 +31,11 @@ export default function ApiDocsPage() {
 
       <Card className="space-y-2">
         <h2 className="text-sm font-semibold text-foreground">Sending an SMS</h2>
-        <Code>{`curl -X POST ${base}/api/messages \\\n  -H "Authorization: Bearer sk_test.<publicId>.<secret>" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "senderIdId": "<your active sender ID id>",\n    "recipients": ["+250788000001"],\n    "content": "Hello from SMS Gateway",\n    "clientReference": "order-123"\n  }'`}</Code>
+        <Code>{`curl -X POST ${base}/api/messages \\\n  -H "Authorization: Bearer sk_test.<publicId>.<secret>" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "senderId": "<your sender ID, e.g. MYBRAND>",\n    "recipients": ["+250788000001"],\n    "content": "Hello from SMS Gateway",\n    "clientReference": "order-123"\n  }'`}</Code>
         <p className="text-sm text-foreground-muted">
-          Requires the <code>sms.send</code> scope. The response includes accepted/rejected recipient counts — invalid phone
-          numbers are rejected before any wallet credit is reserved.
+          Requires the <code>sms.send</code> scope. Identify the sender ID by <code>senderId</code> (its registered value, e.g. <code>MYBRAND</code>) or
+          by <code>senderIdId</code> (its internal id, shown in the dashboard) — provide exactly one. The response includes accepted/rejected
+          recipient counts — invalid phone numbers are rejected before any wallet credit is reserved.
         </p>
       </Card>
 

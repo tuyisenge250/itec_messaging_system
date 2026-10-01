@@ -101,6 +101,7 @@ export class SimulatorSmsProvider implements SmsProvider {
           finalStatus,
           errorCode: scenario?.errorCode ?? undefined,
           errorMessage: scenario?.errorMessage ?? undefined,
+          executionId: execution.id,
         },
         { delay: delayMs, jobId: `delivery-${ctx.recipientId}` },
       );

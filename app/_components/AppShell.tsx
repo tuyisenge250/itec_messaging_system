@@ -198,7 +198,9 @@ export function AppShell({ nav, children, variant = "customer" }: { nav: NavSect
             {!collapsed && <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-wider text-white/50">{section.title}</p>}
             <div className="space-y-0.5">
               {section.items.map((item) => {
-                const active = pathname === item.href || (item.href !== "/dashboard" && item.href !== "/admin/overview" && pathname.startsWith(item.href));
+                const active =
+                  pathname === item.href ||
+                  (item.href !== "/dashboard" && item.href !== "/admin/overview" && item.href !== "/admin/simulator" && pathname.startsWith(item.href));
                 const Icon = item.icon;
                 return (
                   <Link

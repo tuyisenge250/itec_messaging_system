@@ -1,5 +1,6 @@
 import { prisma } from "@/infrastructure/database/prisma";
 import { messagingRepository } from "./repository";
+import { senderIdRepository } from "@/modules/sender-ids/repository";
 import { reserveForRecipient, resolveReservationForRecipient } from "@/modules/wallets/service";
 import { walletRepository } from "@/modules/wallets/repository";
 import { calculateMessageCost } from "@/modules/billing/pricing-service";
@@ -28,6 +29,7 @@ export async function sendMessage(
   organizationId: string,
   environment: Environment,
   input: z.infer<typeof sendMessageSchema>,
+  idempotencyKey?: string,
 ): Promise<SendMessageResult> {
   await assertPermission(actor, PermissionCode.SMS_SEND);
   assertOrganizationAccess(actor, organizationId);
@@ -38,12 +40,20 @@ export async function sendMessage(
     throw AppError.of(ErrorCode.ORGANIZATION_NOT_VERIFIED, "Organization must be verified and active to send production SMS", 403);
   }
 
-  const senderId = await prisma.senderId.findUnique({ where: { id: input.senderIdId } });
-  assertResourceBelongsToOrganization(senderId?.organizationId, organizationId);
-  if (senderId!.environment !== environment) {
+  // Exactly one of these is set — enforced by sendMessageSchema's refine.
+  // senderId (the sender ID's own value, e.g. "MYBRAND") is looked up already
+  // scoped to this organization/environment via its unique constraint;
+  // senderIdId still needs the explicit org/environment checks below since an
+  // id on its own doesn't guarantee either.
+  const senderId = input.senderIdId
+    ? await senderIdRepository.findSenderIdById(input.senderIdId)
+    : await senderIdRepository.findSenderIdByValue(organizationId, input.senderId!, environment);
+  if (!senderId) throw AppError.notFound("Sender ID not found");
+  assertResourceBelongsToOrganization(senderId.organizationId, organizationId);
+  if (senderId.environment !== environment) {
     throw AppError.validation("Sender ID environment does not match the requested send environment");
   }
-  if (senderId!.status !== "ACTIVE") {
+  if (senderId.status !== "ACTIVE") {
     throw AppError.of(ErrorCode.SENDER_ID_NOT_ACTIVE, "This sender ID is not active", 409);
   }
 
@@ -70,7 +80,7 @@ export async function sendMessage(
   const result = await prisma.$transaction(async (tx) => {
     const message = await messagingRepository.createMessage(tx, {
       organization: { connect: { id: organizationId } },
-      senderId: { connect: { id: senderId!.id } },
+      senderId: { connect: { id: senderId.id } },
       apiKey: actor.apiKeyId ? { connect: { id: actor.apiKeyId } } : undefined,
       createdBy: actor.userId ? { connect: { id: actor.userId } } : undefined,
       type,
@@ -78,7 +88,7 @@ export async function sendMessage(
       status: initialStatus,
       content: input.content,
       clientReference: input.clientReference,
-      idempotencyKey: null,
+      idempotencyKey: idempotencyKey ?? null,
       scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : undefined,
       totalRecipients: input.recipients.length,
       currency: cost.currency,

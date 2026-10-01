@@ -126,6 +126,7 @@ export const ADMIN_NAV: NavSection[] = [
       { href: "/admin/packages", label: "SMS Packages", icon: Package },
       { href: "/admin/roles", label: "Roles & Permissions", icon: Lock },
       { href: "/admin/fraud", label: "Fraud", icon: ShieldAlert },
+      { href: "/admin/simulator", label: "Simulator", icon: FlaskConical },
       { href: "/admin/simulator/scenarios", label: "Simulator Scenarios", icon: FlaskConical },
       { href: "/admin/simulator/executions", label: "Simulator Executions", icon: Activity },
     ],
